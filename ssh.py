@@ -30,8 +30,8 @@ class SSHSession(object):
         key = self.t.get_remote_server_key()
         # supposed to check for key in keys, but I don't much care right now to find the right notation
         if key_file is not None:
-            if isinstance(key,str):
-                key_file=open(key,'r')
+            if isinstance(key_file,str):
+                key_file=open(key_file,'r')
             key_head=key_file.readline()
             key_file.seek(0)
             if 'DSA' in key_head:
@@ -73,17 +73,22 @@ class SSHSession(object):
         #  Copy localfile to remotefile, overwriting or creating as needed.
         self.sftp.put(localfile,remotefile)
     
+    def remotepath_join(self,*args):
+        #  Bug fix for Windows clients, we always use / for remote paths
+        return '/'.join(args)
+    
+    
     def put_all(self,localpath,remotepath):
         #  recursively upload a full directory
         os.chdir(os.path.split(localpath)[0])
         parent=os.path.split(localpath)[1]
-        for walker in os.walk(parent):
+        for path,_,files in os.walk(parent):
             try:
-                self.sftp.mkdir(os.path.join(remotepath,walker[0]))
+                self.sftp.mkdir(self.remotepath_join(remotepath,path))
             except:
                 pass
-            for file in walker[2]:
-                self.put(os.path.join(walker[0],file),os.path.join(remotepath,walker[0],file))
+            for filename in files:
+                self.put(os.path.join(path,filename),self.remotepath_join(remotepath,path,filename))
     
     def get(self,remotefile,localfile):
         #  Copy remotefile to localfile, overwriting or creating as needed.
@@ -101,10 +106,9 @@ class SSHSession(object):
                 folders.append(f.filename)
             else:
                 files.append(f.filename)
-        print (path,folders,files)
         yield path,folders,files
         for folder in folders:
-            new_path=os.path.join(remotepath,folder)
+            new_path=self.remotepath_join(remotepath,folder)
             for x in self.sftp_walk(new_path):
                 yield x
         
@@ -119,15 +123,16 @@ class SSHSession(object):
         parent=os.path.split(remotepath)[1]
         try:
             os.mkdir(localpath)
-        except:
+        except FileExistsError:
             pass
-        for walker in self.sftp_walk(parent):
+        for path,_,files in self.sftp_walk(parent):
             try:
-                os.mkdir(os.path.join(localpath,walker[0]))
-            except:
+                os.mkdir(self.remotepath_join(localpath,path))
+            except FileExistsError:
                 pass
-            for file in walker[2]:
-                self.get(os.path.join(walker[0],file),os.path.join(localpath,walker[0],file))
+            for filename in files:
+                print(self.remotepath_join(path,filename),os.path.join(localpath,path,filename))
+                self.get(self.remotepath_join(path,filename),os.path.join(localpath,path,filename))
     def write_command(self,text,remotefile):
         #  Writes text to remotefile, and makes remotefile executable.
         #  This is perhaps a bit niche, but I was thinking I needed it.
